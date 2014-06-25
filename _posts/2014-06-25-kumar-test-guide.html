@@ -1,0 +1,973 @@
+post_title: Kumar test guide
+author: Demo User
+post_excerpt: ""
+layout: post
+permalink: /kumar-test-guide/
+post-option-inside-thumbnail-html5-video:
+  - ""
+post-option-inside-thumbnail-xml:
+  - '<slider-item></slider-item>'
+post-option-inside-thumbnail-video:
+  - ""
+post-option-inside-thumbnial-image:
+  - ""
+post-option-inside-thumbnail-types:
+  - Image
+post-option-thumbnail-html5-video:
+  - ""
+post-option-thumbnail-video:
+  - ""
+post-option-thumbnail-types:
+  - Image
+post-option-social-enabled:
+  - 'Yes'
+post-option-author-info-enabled:
+  - 'Yes'
+post-option-blog-header-title:
+  - ""
+post-option-choose-right-sidebar:
+  - Right
+post-option-choose-left-sidebar:
+  - Right
+post-option-sidebar-template:
+  - right-sidebar
+post-option-thumbnail-xml:
+  - '<slider-item></slider-item>'
+post-option-blog-header-caption:
+  - ""
+---
+Title: iOS Integration Guide
+----
+
+Text: 
+
+# Quick Start Guide iOS 
+
+# About this Guide
+
+This integration guide describes the major steps towards an __integration between your iOS game client and Ops Engine__. At a high level, here is what you will accomplish in this tutorial:
+
+* Create accounts for your players
+* Authenticate your players into the game
+* Build your in-game store catalog
+* Serve the catalog to your users
+* Collect analytics data and visualize the main metrics for your game
+
+This guide assumes that your iOS game client communicates directly with the Ops Engine public dispatcher without a trusted game server as mediator.
+
+  
+![Integration scenario](/images/iOS_GeneralArchitecture_v2.png "Integration scenario described in this guide")
+
+__Figure 1:__ Integration scenario described in this guide
+
+# Registering New Users
+
+As new players start your game, you must first create unique user accounts. The user account is the basis for all subsequent integration steps. It enables you to authenticate your players into the client applications and allows you to record and retrieve player-bound data using the API.
+
+The Ops Engine API provides you with a fast and simple way to create user accounts (register new users). After a few simple integration steps you will be able to:
+
+* Authenticate existing users into the game.
+* Prevent suspended users from accessing the game.
+* View, search, and edit your user accounts using the Admin UI,
+* Carry out customer support actions like managing suspensions, editing user data, and resetting passwords.
+* Visualize and explore all acquisition and retention metrics of your game using the Analytics Explorer.
+
+At a high level, registering a user requires the integration steps visualized in Figure 2. First, you need to create an account for your user. In step two the user is authenticated which will allow you to make subsequent requests to the API on behalf of the user. In step three we create the user’s title account modeling the game profile of the user.
+
+![Three Steps to register users with Ops Engine.](/images/iOS_RegAndLogin.png "Three Steps to register users with Ops Engine.")
+
+__Figure 2:__ Three Steps to register users with Ops Engine.
+
+## Why do I need to create a Title Account?
+
+Title accounts are an investment in forward compatibility. In a near future release, the Ops Engine will grant user accounts access to multiple titles. Title Accounts provide a measure of encapsulation in preparation for this. 
+
+## Configure Ops Engine
+
+Before you start coding the API integration you need to configure Ops Egine to interact with your application. The most basic integration requires that you create a Title and an Application through the Ops Engine Admin UI. A Title is the representation of your game within Ops Engine. All objects within the game (Applications, Users, Title Accounts, transactions, message templates etc.) are scoped to Titles. Each title can have one or more applications - each representing one specific client application integrating with Ops Engine. User accounts and credentials pertain to a title and are shared across applications.
+
+A simple example: The mobile game “Extreme Hide and Seek” offers game clients for iOS and Android. In addition players can log in to a community forum on the website in order to share their gaming adventures. In Ops Engine this constellation is modeled by creating a Title “Extreme Hide and Seek” and three Applications, one for the iOS client, one for Android, and one for the forum on the website. Users will be able to sign in to each client application using the same pair of credentials.
+
+Let’s get started:
+
+### Create a Title
+
+1. Sign in to the Admin UI with a superuser account.
+2. Select __Titles__ from the main navigation.
+3. Activate __New Title...__ from the action menu. 
+4. Enter a name and create your new title.
+
+The Admin UI will now present you with additional configuration options for your title. 
+
+### Create an Application
+
+Now create an application representing your iOS game client:
+
+1. Select __Applications__ from the main navigation.
+2. Activate __New Application...__
+3. Enter a name
+4. Select the title you just created
+5. Choose __Untrusted__ as your integration type and click __Create__
+
+The Admin UI will now display the Signing Key and Signing Secret for the new application. Key and secret are integral elements of the Ops Engine security infrastructure. __Never publish them anywhere nor expose them in client side code.__
+
+## Integrate with the API
+
+### The Basics
+Ops Engine’s API is organized around [REST](https://en.wikipedia.org/wiki/Representational_state_transfer). It adheres to HTTP standards, uses resource oriented URLs, and leverages HTTP response codes to communicate success or failure of API requests. All request bodies are expected to be well formed JSON. Responses bodies are JSON, respectively.
+
+#### Services
+
+The API is segmented into different services. This section of the guide focuses on integrating with the following services:
+
+* __User Service:__ Create and manipulate user accounts
+* __Auth Service:__ Authenticate users into the game
+* __Title Service:__ Manage information around titles and manage user profiles
+
+
+#### Authentication Types
+
+Before integrating with the API you need to select your integration type. You can either integrate as a trusted or an untrusted client application - the configuration can be made in the Admin UI detail view of your application. Choosing your integration type is a trade-off between security and flexibility:
+
+__Untrusted Applications__ should be used for insecure client applications communicating directly with the API, like mobile game clients and in browser games. Untrusted applications can access session bound endpoints only when authenticating on behalf of an individual user. This automatically limits their access scope to data the user is allowed to see and manipulate, generally their own account and linked records. 
+
+__Trusted Applications__ are meant for integrating with game server applications which communicate with the API using a trusted and secured connection. Trusted applications are allowed to access almost all API endpoints. For session-bound requests they can and should choose to scope data to a specific user by using a user access token.
+
+
+#### Request Types
+
+There are two types of requests to the API. Which request type you need to use depends on your integration type (see above) and the endpoint you want to call.
+
+__Session bound requests__ require you to authenticate on behalf of the user using the user’s access token. The API will limit the access scope to data the user is allowed to consume and manipulate. 
+
+__Sessionless requests__ require the integrator to authenticate as an application. Sessionless requests for untrusted applications are limited to very few endpoints e.g. creating new users or the authentication endpoint itself. You should authenticate on behalf of the user even if you are integrating as a trusted application since it will allow you to benefit from automatic request scoping and automatic recording of user-scoped game metrics.
+
+This guide focuses on integrating as an __untrusted application__. You will be __authenticating on behalf of the user__ for all sesion-bound requests. Refer to the section [Constructing Requests](/how-to-construct-the-header) in the [API Documentation](/) for more detailed information.
+
+
+### Create a User Account
+
+The User Service permits the creation of anonymous and credentialed user accounts. For this guide we assume that the user has provided a username, email address, and password before the account was created.
+
+1. [Construct a request header](/api/v1/how-to-construct-the-header) for a sessionless request by an untrusted application.
+2. Issue a POST request to [`/v1/user/users`](/api/v1/services/user#POST%20/v1/user/users) using the header constructed in Step 1. Pass in the account data as JSON.
+3. Accept the response, store the ID of the newly created user, or [handle potential HTTP errors](/api/v1/validation-errors).
+
+__Example request__
+
+```
+POST https://api.example.com/v1/user/users
+
+{
+  "data": {
+    "date_of_birth": "1988-09-11",
+    "registration_ip": "125.160.177.30",
+    "email": "doug_shields@pollichpredovic.net",
+    "first_name": "Muriel",
+    "last_name": "Streich",
+    "username": "marjolaine50258",
+    "locale": "en_US",
+    "password": "sup3rs3cr3t",
+    "password_confirmation": "sup3rs3cr3t",
+    "tags": []
+  }
+}
+```
+
+__Response__
+
+```
+{
+  "data": {
+    "id": "9452228899694236507",
+    "username": "marjolaine50258",
+    "account_status": 0,
+    "email": "doug_shields@pollichpredovic.net",
+    "first_name": "Muriel",
+    "last_name": "Streich",
+    "date_of_birth": "1988-09-11",
+    "registration_ip": "125.160.177.30",
+    "locale": "en_US",
+    "created_at": "2012-12-31T23:59:59Z",
+    "updated_at": "2012-12-31T23:59:59Z",
+    "terms_accepted_at": null,
+    "receive_news": false,
+    "reserved": false,
+    "reset_password_sent_at": null,
+    "sign_in_count": 1,
+    "current_sign_in_at": "2012-12-31T23:59:59Z",
+    "last_sign_in_at": null,
+    "current_sign_in_ip": "125.160.177.30",
+    "last_sign_in_ip": null,
+    "anonymous": false,
+    "tags": [],
+    "external_accounts": [],
+    "title_id" : "936391845650",
+    "entity_type": "user"
+  },
+  "meta": {}
+}
+```
+
+__Further Reading__
+
+* [Constructing a request header](/api/v1/how-to-construct-the-header)
+* [Creating anonymous users](/api/v1/services/user#POST%20/v1/user/users%20Anonymous)
+
+### Authenticate your User
+
+The next step towards a functional user account is the creation of a title account. Since you are integrating as an untrusted application and the API endpoint to create a title account requires you to make a session-bound request you need to first authenticate on behalf of your new user. You then use the access token returned by the authentication endpoint to sign the subsequent request creating the title account.
+
+
+1. [Construct a request header](/api/v1/how-to-construct-the-header) for a sessionless request by an untrusted application.
+2. Make a POST request to [```/v1/oauth/token```](/api/v1/auth) using the header constructed in Step 1. Pass in the credentials of your new user.
+3. Accept the response, store the access and the refresh tokens for subsequent requests, or [handle potential HTTP errors](/api/v1/validation-errors).
+
+__Example Request__
+
+```
+POST https://api.example.com/v1/auth/oauth/token
+{
+    "grant_type": "password",
+    "username":"marjolaine50258",
+    "password":"sup3rs3cr3t"
+}
+```
+
+__Response__
+```
+{
+    "data": {
+        "access_token": "Tb4e0-JTnZndaRsWXgYiWPXcARc",
+        "token_type": "bearer",
+        "refresh_token": "kklwtUxfhoufYDArrFgE3jm8NBk",
+        "expires_in": 863999
+    },
+    "meta": {}
+}
+```
+
+__Further Reading__
+
+* [Authenticating user with refresh tokens](/api/v1/services/auth)
+* [Authentication using external accounts (e.g. Facebook)](/api/v1/services/auth)
+* [Handling authentication errors](/api/index)
+
+### Create a Title Account for the User
+
+Now that you have a user account and a valid access token for the user you can construct the header for the call to the title service to create the title account.
+
+1. [Construct a request header](/api/v1/how-to-construct-the-header) for a session-bound request by an untrusted application. Use your new access token!
+2. Make a POST request to [`/v1/title/title_accounts`](/api/v1/services/title) using the header constructed in Step 1.  
+  
+    *Note that the API will scope the request automatically to the correct title and user by using information from the request header. You neither have to pass in the user nor the title.*
+
+3. Accept the response, store the title account id of the newly created user, or [handle potential HTTP errors](/api/index).
+
+__Example Request__
+
+```
+POST https://api.example.com/v1/title/title_accounts
+```
+
+__Response__
+
+```
+{
+    "data":{
+        "entity_type":"title_account",
+        "id":"593057625495",
+        "user_id":"9452228899694236507",
+        "title_id":"936391845650",
+        "tags": [],
+        "created_at":"2012-12-31T23:59:59Z",
+        "updated_at":"2012-12-31T23:59:59Z",
+        "title":{
+            "entity_type":"title",
+            "id":"936391845650",
+            "name":"Mighty horses of legend",
+            "created_at":"2012-06-25T09:13:21.132Z",
+            "updated_at":"2012-06-25T09:13:21.132Z"
+        }
+    },
+    "meta":{}
+}
+```
+
+# Authenticating Returning Users
+
+If you have already implemented account creation you should be able to see your first users and title accounts in the Admin UI.Let us now implement authentication for your returning users.
+
+## Configure Ops Engine
+
+There are no additional configuration steps necessary for authenticating returning users. However, please suspend a user from accessing the game in order to later test the error handling for suspended accounts in your integration.
+
+### Suspending Users
+
+* Sign in to the Admin UI.
+* Select __Users__ from the main navigation.
+* Search for a test user you know the credentials of and open the user record.
+* Activate __New Suspension__ in section __Disciplinary Actions__ and create a permanent suspension for the user.
+
+## Integrate with the API
+
+### Authenticate your User
+
+As explained earlier you need to authorize all session-bound API requests using the user’s access token (see [Constructing Requests](/api/v1/how-to-construct-the-header)). You stored both, access and refresh token locally when creating user accounts (see Chapter 1). However, we strongly suggest to __retrieve fresh access and refresh tokens every time a user returns to your app__. This will disallow suspended users to access your game and update session based game metrics in Ops Engines Analytics Engine. Figure 3 visualizes the major steps of the process.
+
+![Authenticating returning users](/images/iOS_AccessTokenFlow.png "Authenticating returning users")
+
+__Figure 3:__ Authenticating returning users
+
+#### Step 1. Refresh your access token using the refresh token
+
+In order to retrieve fresh access and refresh tokens pass in the previous refresh token to the session-less endpoint /v1/auth/oauth/token.
+
+__Example Request__
+
+```
+POST /v1/auth/oauth/token
+  
+{
+    "grant_type": "refresh_token",
+    "refresh_token": "wzsdEhJ1eVOksgbW5buPmZkSqG8"
+}
+```
+
+#### Step 2. Handle suspended users
+
+If the user has been suspended from your application the response from the endpoint called in Step 1 will contain an error communicating details about the user’s suspension:
+
+```
+{
+   "error":{
+      "uuid":"9452228899694236507",
+      "key":"user_svc.user.suspended",
+      "code":"2.1.101.403",
+      "description":"account suspended",
+      "time":"2014-03-05T18:34:12Z",
+      "permanent":false,
+      "end_time":"2014-03-06T18:34:12Z",
+      "message":"Account Suspended"
+   },
+   "meta":{
+
+   }
+}
+```
+
+Parse the error response and display an appropriate error message to the user. Test your code by attempting to sign in as the suspended user you had created earlier.
+
+#### Step 3. Re-Authorize using credentials
+
+In the rare case that your __refresh token has expired__ you will receive an error response when requesting a new pair of tokens. Display a login dialog to your user and ask for the user’s credentials. Now request a new pair of tokens using the creds the user has entered:
+
+```
+POST https://api.example.com/v1/auth/oauth/token
+
+{
+   "grant_type":"password",
+   "username":"marjolaine50258",
+   "password":"sup3rs3cr3t"
+}  
+```
+
+Note: You can configure Ops Engine to prevent refresh tokens from expiring.
+
+#### Step 4. Store new tokens and continue
+
+If your request for fresh tokens was successful you will receive the following response. Store your tokens for later and use them later for signing requests or for requesting new tokens.
+
+```
+{
+   "data":{
+      "access_token":"Tb4e0-JTnZndaRsWXgYiWPXcARc",
+      "token_type":"bearer",
+      "refresh_token":"kklwtUxfhoufYDArrFgE3jm8NBk",
+      "expires_in":863999
+   },
+   "meta":{
+
+   }
+}
+```
+
+# Building Your Store
+
+Ops Engine allows you to manage multiple product catalogs for your title. Each catalog may contain one or more collections, each containing its own line-up of products:
+
+__Catalogs:__ Use catalogs to model the storefronts of your game (e.g. one catalog for an in-game store and one catalog for a storefront on your website). For this guide we will create only one catalog for your in-game store.
+
+__Collections:__ Collections should map to the product categories in your store. You can also use tagged collections to personalize the store experience. Within this guide we will create two collections, one for hard and one for soft currency offers.
+
+__Products:__ Ops Engine offers four types of products: currency offers, items, attribute updates, and bundles. Bundles are used to model a combination of the three first mentioned types. This guide will focus on offering virtual currency packages to users.
+
+__Currencies:__ Ops Engine allows you to create an arbitrary amount of in-game currencies per title. Through the API you can you to retrieve, credit, or debit virtual currency balances for each of your users. In addition Ops Engine will handle crediting and debiting currency balances when carrying out purchase transactions. Note that currency balances are linked to title accounts (not the user account) . This enables you to model multiple profiles per user, each maintaining its own currency balances.
+
+## Configure Ops Engine
+
+This guide will explain the integration with the commerce service based on a small example catalog containing two collections and four products:
+
+Product | Collection | Product Type | Price | Currency | App Store Product? | Transaction Type
+--- | --- | --- | --- | --- | --- | --- 
+30 Hard Coins | Hard Currency | VC Offer | 4.99 | USD | yes | Real
+60 Hard Coins | Hard Currency | VC Offer | 8.99 | USD | yes | Real
+200 Soft Coins | Soft Currency | VC Offer | 10 | Hard Coins | no | Virtual
+450 Soft Coins | Soft Currency | VC Offer | 20 | Hard Coins | no | Virtual
+
+### Create Virtual Currencies
+
+In the first step you need to create your virtual currencies:
+
+1. Sign in to the Admin UI.
+2. Select __Currencies__ from the main navigation and activate __New Virtual Currency__ in the action menu.
+3. Name the new currency __Hard Coins__.
+4. Select your game from the __Title__ drop-down menu.
+5. Repeat the process for the new currency __Soft Coins__.
+
+Every title account of your game now possesses currency balances for the two new currencies with a default balance of 0. You can query, credit, and debit the currency balances of any user using the according endpoints of the [Commerce Service](/api/v1/services/commerce).
+
+### Create Your Catalog
+
+1. Select __Storefront__ from the main navigation.
+2. Activate __New Catalog__ from the __Catalogs__ action menu and configure the following attributes:
+3. The catalog __name__ represents the internal name of your catalog. The name must be unique per title.
+4. Use the __display name__ to configure a user facing name of the store. 
+5. Link the catalog to your game by selecting the correct entry from the __title__ drop down menu.
+6. Hit __Create__.
+
+### Create Collections
+
+1. Make sure your new catalog is selected.
+2. Activate __New Collection__.
+3. Enter __Hard Currency__ for both __collection name__ and __display name__.
+4. Repeat the process for the collection __Soft Currency__.
+
+
+### Add Products to Collections
+
+Now it is time to create your products. For this example we will create four products, two for each of your collections.
+
+1. Select the collection __Hard Currency__.
+2. Click on __New Product__.
+3. Select __Currency Offer__ as the product type.
+4. Enter __30 Hard Coins__ as the product name and click Next.
+5. Select __Hard Coins__ as the currency and enter __30__ for the amount. 
+6. Click __Next__.
+
+During the next step you need to define a product price for each currency you want to sell the product for. The product you just created is a package of hard currency to be offered for real currency only. For simplicity’s sake we offer the product in the US only.
+
+7. Define a price of __USD 4.99__ for your new product and click __Create__.
+8. Repeat the process for __60 hard coins__ on sale for for __USD 8.99__.
+
+You have now created two hard currency offers to be purchased for USD. Let us now create two offers of Soft Coins that users can purchase for Hard Coins:
+
+1. Select the collection __Soft Currency__.
+2. Click on __New Product__.
+3. Select __Currency Offer__ as the product type.
+4. Enter __200 Soft Coins__ as the product name and click __Next__.
+5. Select __Soft Coins__ as the currency and enter __200__ for the amount. Click __Next__.
+6. Define a price of __Hard Currency 10__ for your new product and click __Create__.
+7. Repeat the process for an offer of __450 soft coins__ for __Hard Currency 20__.
+
+
+## Set up In-App Purchases in iTunes Connect
+
+In order to sell any item for __real currency__ on iOS devices you must set up your products as [In-App Purchases](https://developer.apple.com/in-app-purchase/) in [iTunes Connect](https://itunesconnect.apple.com/). Ops Engine’s Commerce Service will support you in carrying out your transactions and integrate with the App Store if you link your Ops Engine offers to the according iOS In-App Purchases.
+
+__Note that the products configured in iTunes connect are price authoritative. Ops Engine takes this fact into account and uses charged amounts for transaction logging and reporting. However, you should make sure that the price of the related OPS Engine product always mirrors the price of the equivalent Apple In-App Purchase.__
+
+1. Create In-App Purchases for the two Hard Coin products you created in the preceding section  
+  
+    Refer to the [In-App Purchase Configuration Guide for iTunes Connect](https://developer.apple.com/library/ios/documentation/LanguagesUtilities/Conceptual/iTunesConnectInAppPurchase_Guide/Chapters/Introduction.html) for more details.  
+
+2. The products you just set up in iTunes Connect each have a __unique product identifier__. You need to attach this identifier to the two hard currency products in Ops Engine:  
+
+    a. Sign in to Ops Engine’s Admin UI with a superuser account.
+    b. Select __Storefront__ from the main navigation.
+    c. Find your __30 Hard Coins__ and __60 Hard Coins__ products.
+    d. Fill in the __iOS App Store Identifier__ field with the corresponding Product Identifier you obtained from iTunes connect.
+
+## Integrate with the API
+  
+Now that you have configured Ops Engine and iTunes Connect you can start coding the integration. Figure 4 outlines the major steps of the process.
+
+![Displaying your storefront and executing a payment transaction](/images/iOS_Transactions.png "Displaying your storefront and executing a payment transaction")
+__Figure 4:__ Displaying your storefront and executing a payment transaction
+
+### Display the Storefront
+
+In order to display the store ui you first need to retrieve its content (= the catalog) from the API. In a second step you should request the prices for all real-currency offers from the iOS App store in order to ensure up-to-date pricing information in your store.
+
+Typically you want to fetch and cache catalog and iOS prices immediately after your user has signed in. This will allow you to instantly display the storefront at any time without further calls to the API.
+
+#### Fetch the Ops Engine Catalog
+
+Make a request to [`GET /v1/commerce/catalogs/:id/present`](/api/v1/services/commerce#GET_/v1/commerce/catalogs/:id/present) to request the catalog for your in game store. The API will respond with a JSON representation of the requested catalog. Collections, products, and prices are all embedded. Products which are either not visible or are outside of their visibility windows are not returned.
+
+The endpoint supports both session-bound and session-less requests. Responses to session-bound requests will be scoped to the authenticated user and only deliver products matching the user’s [segmentation tags](/api/v1/services/commerce#GET_/v1/commerce/catalogs/:id/present). You may use segmentation tags to present distinct store experiences to specific user segments or cohorts.
+
+__Example Request__
+
+```
+GET /v1/commerce/catalogs/893482982843/present
+```
+
+__Example Response__
+```
+See Appendix.
+```
+
+#### Retrieve App Store Prices
+
+Fetch the prices for all products you offer for real currency from the App Store and update your cached catalog accordingly. Please refer to the [In-App Purchase Programming Guide](https://developer.apple.com/library/ios/documentation/NetworkingInternet/Conceptual/StoreKitGuide/Introduction.html) for details.
+
+#### Display Store UI
+
+On request or as dictated by your game design, display the Store UI to the user based on the cached catalog structure and pricing data.
+
+
+### Manage the Purchase Process
+
+A transaction in Ops Engine models the checkout and fulfillment process of a Product by a Title Account in a Currency from a payment provider. In the scope of this guide the payment provider is either Ops Engine itself or the iOS App Store. There are two transaction types: Virtual transactions and real transactions.
+
+#### Implementing Virtual Transactions
+
+Virtual Transactions handle the purchase process for products offered for virtual currencies managed by Ops Engine. They are therefore handled without the involvement of external payment providers like the App Store. 
+
+Virtual transactions are in one of two possible transactional states:
+
+* __verified:__ Virtual transactions are in this state instantly immediately upon successful creation. Since Ops Engine has access to virtual currency balances of all users it will noßt permit the creation of virtual transactions for users with insufficient funds.
+
+* __fulfilled:__ The product has been fulfilled to the according Title Account (e.g. currency balance of the user has been credited).
+
+Back to our example: You added two products to your catalog which are on sale for virtual currency: 
+
+* __200 Soft Coins__ offered for 10 Hard Coins
+* __450 Soft Coins__ on sale for 20 Hard Coins
+
+When a user expresses an intent to purchase one of these products (by pressing a Buy button), you need to create a Virtual Transaction through the API:
+
+```
+POST /v1/commerce/transactions
+  
+{
+	"data": {
+		"entity_type": "virtual_transaction",
+		"payment_provider": "platform",
+		"title_account_id": "593057625495",
+		"product_id": "3353662956455013863",
+		"currency_id": "980938902333",
+		"catalog_id": "893482982843",
+		"collection_id": "8348020023",
+		"paid_amount": 10
+	}
+}
+```
+  
+
+If the transaction was created successfully Ops Engine will:
+
+* __Create__ a transaction object in state verified,
+* __Debit__ 10 or 20 hard coins from the according currency balance associated with the title account,
+* __Fulfill__ the passed in product synchronously by __crediting__ 200 or 450 soft coins to the title account,
+* Move the transaction into the state __fulfilled__ and respond with a JSON representation of the transaction object:
+
+```
+{
+  "data": {
+    "id": "390890389427394234",
+    "user_id": "9452228899694236507",
+    "product_id": "3353662956455013863",
+    "title_account_id": "593057625495",
+    "currency_id": "980938902333",
+    "payment_provider": "platform",
+    "paid_amount": 10.0,
+    "base_price": 0.0,
+    "promotion_id": null,
+    "state": "fulfilled",
+    "fulfilled_at": "2012-12-31T23:59:59Z",
+    "catalog_id": "893482982843",
+    "collection_id": "8348020023",
+    "inventory_callback_url": null,
+    "fulfillments": [
+        {
+            "id": "9083094820934",
+            "product_id": "3353662956455013863",
+            "transaction_id": "390890389427394234",
+            "fulfillable_id": "390890389427394234",
+            "fulfillable_entity_type": "virtual_transaction",
+            "last_failed_at": nil,
+            "failures": 0,
+            "state": "fulfilled",
+            "fulfilled_at": "2013-10-21T00:29:27Z",
+            "created_at": "2013-10-21T00:29:27Z",
+            "updated_at": "2013-11-21T00:29:27Z",
+            "entity_type": "fulfillment"
+        }
+    ],
+    "updated_at": "2012-12-31T23:59:59Z",
+    "created_at": "2012-12-31T23:59:59Z",
+    "entity_type": "virtual_transaction"
+  }
+}
+```
+
+#### Implementing Real Transactions
+
+Real Transactions handle the purchase process for products sold for real currency (e.g. USD) and must involve an external payment provider in order to handle the actual payment (in this case the iOS App Store). At any point in time, every Real Transaction is one of the following states:
+
+* __reserved:__ Initial state. It is good practice to reserve an Ops Engine transaction as soon as the user expressed an intent to purchase.
+* __received_receipt:__ Ops Engine has received the receipt.  
+(via POST /v1/commerce/transactions/:id/record_receipt).
+* __released:__ The Transaction was initially reserved, but was explicitly canceled by the client   
+(via POST /v1/commerce/transactions/:id/release).
+* __verified:__ The transaction has been verified with the iOS App Store. It is waiting to become fulfilled.
+* __invalidated:__ The iOS App Store has informed Ops Egine that the receipt is not valid. This can happen because of a code error, or a malicious user attempt. The Transaction cannot be moved to a different state. 
+* __fulfilled:__ The transaction has been verified and the product has been fulfilled to the Title Account.
+
+In our example store configuration you sell two products for real currency:
+
+* __30 Hard Coins__ for USD 4.99
+* __60 Hard Coins__ for USD 6.99
+
+Implement the following integration steps:
+
+__Step 1:__ After the user has confirmed the purchase you need to reserve a transaction:
+
+```
+POST /v1/commerce/transactions
+  
+{
+    "data": {
+        "entity_type": "real_transaction",
+        "title_account_id": "593057625495",
+        "catalog_id": "893482982843",
+        "collection_id": "8348020022",
+        "product_id": "3353662956455013861"
+    }
+}
+```
+
+__Example Response__
+```
+{
+    "data": {
+        "id": "6444802717456406686",
+        "user_id": "9452228899694236507",
+        "product_id": "3353662956455013861",
+        "title_account_id": "593057625495",
+        "currency_id": null,
+        "payment_provider": null,
+        "catalog_id": "893482982843",
+        "collection_id": "8348020022",
+        "inventory_callback_url": null,
+        "paid_amount": 4.99,
+        "base_price": nil,
+        "promotion_id": nil,
+        "receipt": null,
+        "state": "reserved",
+        "transaction_time": null,
+        "external_transaction_identifier": null,
+        "fulfilled_at": null,
+        "received_receipt_at": null,
+        "verified_at": null,
+        "fulfillments": [],
+        "updated_at": "2012-12-31T23:59:59Z",
+        "created_at": "2012-12-31T23:59:59Z",
+        "entity_type": "real_transaction"
+    }
+}
+```
+
+__Step 2:__ Now your app has to submit a payment request to the App Store and wait for the App Store to asynchronously call the according observer method with the payment receipt. Please refer to the [In-App Purchase Configuration Guide for iTunes Connect](https://developer.apple.com/library/ios/documentation/LanguagesUtilities/Conceptual/iTunesConnectInAppPurchase_Guide/Chapters/Introduction.html) for more details.
+
+Pass in the receipt to the Ops Engine API:
+
+```
+POST /v1/commerce/transactions/6444802717456406686/record_receipt
+  
+{ 
+    "data": { 
+        "receipt": "*** apple-receipt-blob-here ***",
+        "currency_id": "980938902332", 
+        "paid_amount": 4.99, 
+        "transaction_time": "2012-12-31T23:59:59Z",
+        "external_transaction_identifier": "9737AB34DEF"
+    }
+}
+```
+
+In order to prevent fraud Ops Engine will synchronously verify the receipt with Apple. Based on the result of the receipt verification the state of the Ops Engine transaction will either change to __verified__ or __invalidated__. If the receipt was valid Ops Engine will attempt to fulfill the product to the Title Account of the user. The transaction will change its state to __fulfilled__.
+
+The response from the API after successful fulfillment looks like this:
+
+``` 
+{ 
+	"data": {
+		"id": "6444802717456406686",
+		"user_id": "9452228899694236507",
+		"title_account_id": "593057625495",
+		"product_id": "3353662956455013861",
+		"currency_id": "980938902332",
+		"state": "fulfilled",
+		"receipt": "*** apple-receipt-blob-here ***",
+		"catalog_id": "893482982843",
+		"collection_id": "8348020022",
+		"inventory_callback_url": null,
+		"paid_amount": 4.99,
+		"base_price": nil,
+		"promotion_id": nil,
+		"transaction_time": "2013-11-21T00:29:27Z",
+		"external_transaction_identifier": "9737AB34DEF",
+		"received_receipt_at": "2013-11-21T00:29:27Z",
+		"verified_at": "2013-11-21T00:29:27Z",
+		"fulfilled_at": "2013-11-21T00:29:27Z",
+		"released_at": null,
+		"invalidated_at": null,
+		"ios_app_store_verfication_url": "https://buy.itunes.apple.com/verifyReceipt",
+		"expired_at": null,
+		"payment_provider": "ios_app_store",
+		"fulfillments": [
+			{
+				"id": "9083094820934",
+				"product_id": "3353662956455013861",
+				"transaction_id": "6444802717456406686",
+				"fulfillable_id": "6444802717456406686",
+				"fulfillable_entity_type": "real_transaction",
+				"last_failed_at": nil,
+				"failures": 0,
+				"state": 'fulfilled',
+				"fulfilled_at": "2013-10-21T00:29:27Z",
+				"created_at": "2013-10-21T00:29:27Z",
+				"updated_at": "2013-11-21T00:29:27Z",
+				"entity_type": "fulfillment"
+			}
+		]
+		"created_at": "2013-11-21T00:29:27Z",
+		"updated_at": "2013-11-21T00:29:27Z",
+		"entity_type": "real_transaction"
+	}
+}
+```
+
+# Appendix
+
+## Example Response to Catalog Request
+
+```
+{
+	"data": {
+		"id": "893482982843",
+		"name": "My iOS Client Catalog",
+		"title_id": "936391845650",
+		"description": "Some simple items",
+		"preview_asset": "",
+		"created_at": "2012-09-02T15:01:34Z",
+		"updated_at": "2012-12-31T23:59:59Z",
+		"entity_type": "catalog",
+		"collection_ids": [
+			"8348020022",
+			"8348020023"
+		],
+		"collections": [
+			{
+				"id": "8348020022",
+				"name": "Hard Currency",
+				"description": "Two hard currency offers.",
+				"title_id": "936391845650",
+				"preview_asset": "",
+				"created_at": "2012-09-02T15:01:34Z",
+				"updated_at": "2012-12-31T23:59:59Z",
+				"entity_type": "collection",
+				"product_ids": [
+					"3353662956455013861",
+					"3353662956455013862"
+				],
+				"products": [
+					{
+						"id": "3353662956455013861",
+						"name": "30 Hard Coins",
+						"description": "30 Hard Coins",
+						"preview_asset": "",
+						"amount": 30,
+						"ios_app_store_identifier": "com.sweetgame.currency_offers.30_hard_coins",
+						"visibility": true,
+						"visibility_start_at": null,
+						"visibility_end_at": null,
+						"title_id": "936391845650",
+						"active_promotion": null,
+						"created_at": "2012-09-02T15:01:34Z",
+						"updated_at": "2012-12-31T23:59:59Z",
+						"entity_type": "currency_offer",
+						"price_ids": [
+							"980938902337"
+						],
+						"storefront_tags": [],
+						"prices": [
+							{
+								"id": "980938902337",
+								"amount": 4.99,
+								"final_amount": 4.99,
+								"product_id": "3353662956455013861",
+								"currency_id": "980938902332",
+								"created_at": "2012-09-02T15:01:34Z",
+								"updated_at": "2012-12-31T23:59:59Z",
+								"entity_type": "price",
+								"currency": {
+									"id": "980938902332",
+									"name": "USD",
+									"real": true,
+									"title_id": "936391845650",
+									"created_at": "2012-12-31T23:59:59Z",
+									"updated_at": "2012-12-31T23:59:59Z",
+									"entity_type": "currency"
+								}
+							}
+						]
+					},
+					{
+						"id": "3353662956455013862",
+						"name": "60 Hard Coins",
+						"description": "60 Hard Coins",
+						"preview_asset": "",
+						"amount": 60,
+						"ios_app_store_identifier": "com.sweetgame.currency_offers.60_hard_coins",
+						"visibility": true,
+						"visibility_start_at": null,
+						"visibility_end_at": null,
+						"title_id": "936391845650",
+						"active_promotion": null,
+						"created_at": "2012-09-02T15:01:34Z",
+						"updated_at": "2012-12-31T23:59:59Z",
+						"entity_type": "currency_offer",
+						"price_ids": [
+							"980938902338"
+						],
+						"storefront_tags": [],
+						"prices": [
+							{
+								"id": "980938902338",
+								"amount": 8.99,
+								"final_amount": 8.99,
+								"product_id": "3353662956455013862",
+								"currency_id": "980938902332",
+								"created_at": "2012-09-02T15:01:34Z",
+								"updated_at": "2012-12-31T23:59:59Z",
+								"entity_type": "price",
+								"currency": {
+									"id": "980938902332",
+									"name": "USD",
+									"real": true,
+									"title_id": "936391845650",
+									"created_at": "2012-12-31T23:59:59Z",
+									"updated_at": "2012-12-31T23:59:59Z",
+									"entity_type": "currency"
+								}
+							}
+						]
+					}
+				]
+			},
+			{
+				"id": "8348020023",
+				"name": "Soft Currency",
+				"description": "Two soft currency offers.",
+				"title_id": "936391845650",
+				"preview_asset": "",
+				"created_at": "2012-09-02T15:01:34Z",
+				"updated_at": "2012-12-31T23:59:59Z",
+				"entity_type": "collection",
+				"product_ids": [
+					"3353662956455013863",
+					"3353662956455013864"
+				],
+				"products": [
+					{
+						"id": "3353662956455013863",
+						"name": "200 Soft Coins",
+						"description": "200 Soft Coins",
+						"preview_asset": "",
+						"amount": 200,
+						"ios_app_store_identifier": "",
+						"visibility": true,
+						"visibility_start_at": null,
+						"visibility_end_at": null,
+						"title_id": "936391845650",
+						"active_promotion": null,
+						"created_at": "2012-09-02T15:01:34Z",
+						"updated_at": "2012-12-31T23:59:59Z",
+						"entity_type": "currency_offer",
+						"price_ids": [
+							"980938902339"
+						],
+						"storefront_tags": [],
+						"prices": [
+							{
+								"id": "980938902339",
+								"amount": 10,
+								"final_amount": 10,
+								"product_id": "3353662956455013863",
+								"currency_id": "980938902333",
+								"created_at": "2012-09-02T15:01:34Z",
+								"updated_at": "2012-12-31T23:59:59Z",
+								"entity_type": "price",
+								"currency": {
+									"id": "980938902333",
+									"name": "Hard Coins",
+									"real": false,
+									"title_id": "936391845650",
+									"created_at": "2012-12-31T23:59:59Z",
+									"updated_at": "2012-12-31T23:59:59Z",
+									"entity_type": "currency"
+								}
+							}
+						]
+					},
+					{
+						"id": "3353662956455013864",
+						"name": "450 Soft Coins",
+						"description": "450 Soft Coins",
+						"preview_asset": "",
+						"amount": 450,
+						"ios_app_store_identifier": "",
+						"visibility": true,
+						"visibility_start_at": null,
+						"visibility_end_at": null,
+						"title_id": "936391845650",
+						"active_promotion": null,
+						"created_at": "2012-09-02T15:01:34Z",
+						"updated_at": "2012-12-31T23:59:59Z",
+						"entity_type": "currency_offer",
+						"price_ids": [
+							"980938902340"
+						],
+						"storefront_tags": [],
+						"prices": [
+							{
+								"id": "980938902340",
+								"amount": 20,
+								"final_amount": 20,
+								"product_id": "3353662956455013864",
+								"currency_id": "980938902333",
+								"created_at": "2012-09-02T15:01:34Z",
+								"updated_at": "2012-12-31T23:59:59Z",
+								"entity_type": "price",
+								"currency": {
+									"id": "980938902333",
+									"name": "Hard Coins",
+									"real": false,
+									"title_id": "936391845650",
+									"created_at": "2012-12-31T23:59:59Z",
+									"updated_at": "2012-12-31T23:59:59Z",
+									"entity_type": "currency"
+								}
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}
+```
